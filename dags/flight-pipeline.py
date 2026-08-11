@@ -3,6 +3,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from scripts.silver_layer import run_silver_transform
+from scripts.bronze_layer import run_bronze_ingestion
 
 AIRFLOW_HOME = Path("/opt/airflow")
 
@@ -29,3 +31,11 @@ with DAG(
         task_id="bronze_ingest",
         python_callable=run_bronze_ingestion,
     )
+
+    silver = PythonOperator(
+        task_id = "silver_transform",
+        python_callable=run_silver_transform,
+    )
+
+    bronze >> silver
+    
