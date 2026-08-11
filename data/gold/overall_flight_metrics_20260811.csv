@@ -1,0 +1,2 @@
+total_aircraft,total_countries,airborne_count,grounded_count,airborne_percentage,grounded_percentage,average_velocity,median_velocity,minimum_velocity,maximum_velocity,average_velocity_kmh,high_speed_aircraft
+12381,106,11318,1063,91.41,8.59,149.3,172.9,0.0,2150.63,537.49,950

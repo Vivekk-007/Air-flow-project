@@ -1,4 +1,26 @@
-/.venv/
-/.env
-/data/
-/logs/
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Secrets
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+
+# Airflow temporary files
+airflow.cfg
+airflow.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Ignore Bronze and Silver
+data/bronze/
+data/silver/

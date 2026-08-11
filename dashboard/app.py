@@ -7,7 +7,7 @@ import streamlit as st
 
 
 # ============================================================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -25,9 +25,8 @@ st.set_page_config(
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 GOLD_DIR = PROJECT_ROOT / "data" / "gold"
-
-BRONZE_DIR = PROJECT_ROOT / "data" / "bronze"
 SILVER_DIR = PROJECT_ROOT / "data" / "silver"
+BRONZE_DIR = PROJECT_ROOT / "data" / "bronze"
 
 
 # ============================================================
@@ -39,7 +38,7 @@ st.markdown(
     <style>
 
     .main-title {
-        font-size: 42px;
+        font-size: 40px;
         font-weight: 700;
         margin-bottom: 0px;
     }
@@ -53,15 +52,8 @@ st.markdown(
     .section-title {
         font-size: 28px;
         font-weight: 650;
-        margin-top: 25px;
+        margin-top: 20px;
         margin-bottom: 15px;
-    }
-
-    .info-box {
-        padding: 18px;
-        border-radius: 10px;
-        border: 1px solid #d9d9d9;
-        margin-bottom: 10px;
     }
 
     </style>
@@ -75,6 +67,10 @@ st.markdown(
 # ============================================================
 
 def get_latest_file(directory: Path, pattern: str):
+    """Return the most recently modified file matching pattern."""
+
+    if not directory.exists():
+        return None
 
     files = list(directory.glob(pattern))
 
@@ -83,26 +79,35 @@ def get_latest_file(directory: Path, pattern: str):
 
     return max(
         files,
-        key=lambda file: file.stat().st_mtime
+        key=lambda file: file.stat().st_mtime,
     )
 
 
-def format_number(value):
+def number(value):
+    """Format a number safely."""
 
-    return f"{int(value):,}"
+    try:
+        return f"{int(float(value)):,}"
+    except (ValueError, TypeError):
+        return "0"
 
 
-def format_percentage(value):
+def percentage(value):
+    """Format percentage safely."""
 
-    return f"{float(value):.1f}%"
+    try:
+        return f"{float(value):.1f}%"
+    except (ValueError, TypeError):
+        return "0.0%"
 
 
-def safe_divide(a, b):
+def safe_percentage(numerator, denominator):
+    """Calculate percentage without division by zero."""
 
-    if b == 0:
-        return 0
+    if denominator == 0:
+        return 0.0
 
-    return (a / b) * 100
+    return (numerator / denominator) * 100
 
 
 # ============================================================
@@ -114,41 +119,54 @@ def load_gold_data():
 
     country_file = get_latest_file(
         GOLD_DIR,
-        "country_flight_analytics_*.csv"
+        "country_flight_analytics_*.csv",
     )
 
     velocity_file = get_latest_file(
         GOLD_DIR,
-        "velocity_analytics_*.csv"
+        "velocity_analytics_*.csv",
     )
 
     status_file = get_latest_file(
         GOLD_DIR,
-        "flight_status_analytics_*.csv"
+        "flight_status_analytics_*.csv",
     )
 
     overall_file = get_latest_file(
         GOLD_DIR,
-        "overall_flight_metrics_*.csv"
+        "overall_flight_metrics_*.csv",
     )
 
-    if not all(
-        [
-            country_file,
-            velocity_file,
-            status_file,
-            overall_file,
-        ]
-    ):
-        return None
+    missing = []
 
-    country_df = pd.read_csv(country_file)
+    if country_file is None:
+        missing.append("country_flight_analytics")
 
-    velocity_df = pd.read_csv(velocity_file)
+    if velocity_file is None:
+        missing.append("velocity_analytics")
 
-    status_df = pd.read_csv(status_file)
+    if status_file is None:
+        missing.append("flight_status_analytics")
 
-    overall_df = pd.read_csv(overall_file)
+    if overall_file is None:
+        missing.append("overall_flight_metrics")
+
+    if missing:
+        return None, missing
+
+    try:
+
+        country_df = pd.read_csv(country_file)
+
+        velocity_df = pd.read_csv(velocity_file)
+
+        status_df = pd.read_csv(status_file)
+
+        overall_df = pd.read_csv(overall_file)
+
+    except Exception as error:
+
+        return None, [str(error)]
 
     return {
         "country": country_df,
@@ -159,10 +177,10 @@ def load_gold_data():
         "velocity_file": velocity_file,
         "status_file": status_file,
         "overall_file": overall_file,
-    }
+    }, []
 
 
-data = load_gold_data()
+data, loading_errors = load_gold_data()
 
 
 # ============================================================
@@ -178,7 +196,7 @@ with st.sidebar:
     st.subheader("Navigation")
 
     page = st.radio(
-        "Go to",
+        "Select dashboard section",
         [
             "Executive Overview",
             "Country Analysis",
@@ -191,7 +209,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    st.subheader("Pipeline")
+    st.subheader("Pipeline Architecture")
 
     st.write("🟤 Bronze")
     st.write("↓")
@@ -203,15 +221,17 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if st.button("🔄 Refresh Data"):
+    if st.button(
+        "🔄 Refresh Dashboard",
+        use_container_width=True,
+    ):
 
         st.cache_data.clear()
-
         st.rerun()
 
 
 # ============================================================
-# DATA AVAILABILITY CHECK
+# CHECK DATA
 # ============================================================
 
 if data is None:
@@ -222,8 +242,16 @@ if data is None:
         "Gold layer data is not available."
     )
 
+    if loading_errors:
+
+        st.write("Problem:")
+
+        for error in loading_errors:
+            st.code(str(error))
+
     st.info(
-        "Run the Airflow DAG first:"
+        "Run the Airflow pipeline first to generate "
+        "the Gold datasets."
     )
 
     st.code(
@@ -239,40 +267,90 @@ if data is None:
 # DATA REFERENCES
 # ============================================================
 
-country_df = data["country"]
+country_df = data["country"].copy()
 
-velocity_df = data["velocity"]
+velocity_df = data["velocity"].copy()
 
-status_df = data["status"]
+status_df = data["status"].copy()
 
-overall_df = data["overall"]
+overall_df = data["overall"].copy()
+
+
+# ============================================================
+# CHECK OVERALL DATA
+# ============================================================
+
+if overall_df.empty:
+
+    st.error(
+        "overall_flight_metrics file is empty."
+    )
+
+    st.stop()
 
 
 metrics = overall_df.iloc[0]
 
 
 # ============================================================
-# HEADER
+# GLOBAL KPI VARIABLES
+#
+# IMPORTANT:
+# These are defined BEFORE all dashboard pages so that
+# every page can use them.
 # ============================================================
 
-st.markdown(
-    '<div class="main-title">'
-    '✈️ Flight Operations Intelligence'
-    '</div>',
-    unsafe_allow_html=True,
+total_aircraft = int(
+    float(metrics.get("total_aircraft", 0))
 )
 
-st.markdown(
-    '<div class="subtitle">'
-    'Aircraft snapshot analytics powered by '
-    'Apache Airflow and Medallion Architecture'
-    '</div>',
-    unsafe_allow_html=True,
+total_countries = int(
+    float(metrics.get("total_countries", 0))
+)
+
+airborne_count = int(
+    float(metrics.get("airborne_count", 0))
+)
+
+grounded_count = int(
+    float(metrics.get("grounded_count", 0))
+)
+
+airborne_percentage = float(
+    metrics.get("airborne_percentage", 0)
+)
+
+grounded_percentage = float(
+    metrics.get("grounded_percentage", 0)
+)
+
+average_velocity = float(
+    metrics.get("average_velocity_kmh", 0)
+)
+
+average_velocity_ms = float(
+    metrics.get("average_velocity", 0)
+)
+
+minimum_velocity = float(
+    metrics.get("minimum_velocity", 0)
+)
+
+maximum_velocity = float(
+    metrics.get("maximum_velocity", 0)
+)
+
+median_velocity = float(
+    metrics.get("median_velocity", 0)
+)
+
+high_speed_count = int(
+    float(metrics.get("high_speed_aircraft", 0))
 )
 
 
 # ============================================================
-# SNAPSHOT INFORMATION
+# LAST UPDATED
 # ============================================================
 
 gold_files = [
@@ -292,27 +370,54 @@ last_updated = datetime.fromtimestamp(
 )
 
 
-col1, col2, col3, col4 = st.columns(4)
+# ============================================================
+# HEADER
+# ============================================================
 
-with col1:
+st.markdown(
+    '<div class="main-title">'
+    "✈️ Flight Operations Intelligence"
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div class="subtitle">'
+    "Aircraft snapshot analytics powered by "
+    "Apache Airflow + Medallion Architecture"
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# SNAPSHOT INFORMATION
+# ============================================================
+
+info1, info2, info3, info4 = st.columns(4)
+
+with info1:
+
     st.info(
-        f"""
+        """
         **Data Source**
 
-        Flight state snapshot
+        Flight-state snapshot
         """
     )
 
-with col2:
+with info2:
+
     st.info(
-        f"""
-        **Pipeline**
+        """
+        **Architecture**
 
         Bronze → Silver → Gold
         """
     )
 
-with col3:
+with info3:
+
     st.info(
         f"""
         **Last Updated**
@@ -321,10 +426,11 @@ with col3:
         """
     )
 
-with col4:
+with info4:
+
     st.info(
         """
-        **Schedule**
+        **Pipeline Schedule**
 
         Every 30 minutes
         """
@@ -339,45 +445,17 @@ if page == "Executive Overview":
 
     st.markdown(
         '<div class="section-title">'
-        '📊 Executive Overview'
-        '</div>',
+        "📊 Executive Overview"
+        "</div>",
         unsafe_allow_html=True,
     )
 
-    # --------------------------------------------------------
-    # KPI VALUES
-    # --------------------------------------------------------
-
-    total_aircraft = int(
-        metrics["total_aircraft"]
-    )
-
-    total_countries = int(
-        metrics["total_countries"]
-    )
-
-    airborne_count = int(
-        metrics["airborne_count"]
-    )
-
-    grounded_count = int(
-        metrics["grounded_count"]
-    )
-
-    airborne_percentage = float(
-        metrics["airborne_percentage"]
-    )
-
-    grounded_percentage = float(
-        metrics["grounded_percentage"]
-    )
-
-    average_velocity = float(
-        metrics["average_velocity_kmh"]
-    )
-
-    high_speed_count = int(
-        metrics["high_speed_aircraft"]
+    st.write(
+        """
+        This section provides a high-level view of the current
+        aircraft-state snapshot and the most important
+        operational indicators.
+        """
     )
 
     # --------------------------------------------------------
@@ -386,53 +464,67 @@ if page == "Executive Overview":
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric(
-        "Observed Aircraft",
-        format_number(total_aircraft),
-    )
+    with col1:
 
-    col2.metric(
-        "Countries",
-        format_number(total_countries),
-    )
+        st.metric(
+            "Observed Aircraft",
+            number(total_aircraft),
+        )
 
-    col3.metric(
-        "Airborne Rate",
-        format_percentage(
-            airborne_percentage
-        ),
-    )
+    with col2:
 
-    col4.metric(
-        "Grounded Rate",
-        format_percentage(
-            grounded_percentage
-        ),
-    )
+        st.metric(
+            "Countries",
+            number(total_countries),
+        )
 
-    st.markdown("")
+    with col3:
+
+        st.metric(
+            "Airborne Rate",
+            percentage(airborne_percentage),
+        )
+
+    with col4:
+
+        st.metric(
+            "Grounded Rate",
+            percentage(grounded_percentage),
+        )
+
+    # --------------------------------------------------------
+    # SECONDARY KPIs
+    # --------------------------------------------------------
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric(
-        "Airborne Aircraft",
-        format_number(airborne_count),
-    )
+    with col1:
 
-    col2.metric(
-        "Grounded Aircraft",
-        format_number(grounded_count),
-    )
+        st.metric(
+            "Airborne Aircraft",
+            number(airborne_count),
+        )
 
-    col3.metric(
-        "Average Velocity",
-        f"{average_velocity:,.1f} km/h",
-    )
+    with col2:
 
-    col4.metric(
-        "High-Speed Aircraft",
-        format_number(high_speed_count),
-    )
+        st.metric(
+            "Grounded Aircraft",
+            number(grounded_count),
+        )
+
+    with col3:
+
+        st.metric(
+            "Average Velocity",
+            f"{average_velocity:.1f} km/h",
+        )
+
+    with col4:
+
+        st.metric(
+            "High-Speed Aircraft",
+            number(high_speed_count),
+        )
 
     st.divider()
 
@@ -441,34 +533,78 @@ if page == "Executive Overview":
     # --------------------------------------------------------
 
     st.subheader(
-        "✈️ Current Aircraft Status"
+        "✈️ Aircraft Operational Status"
     )
 
     col1, col2 = st.columns(2)
 
     with col1:
 
-        fig = px.pie(
-            status_df,
-            names="flight_status",
-            values="aircraft_count",
-            hole=0.55,
-            title="Airborne vs Grounded",
-        )
+        if not status_df.empty:
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True,
-        )
+            fig = px.pie(
+                status_df,
+                names="flight_status",
+                values="aircraft_count",
+                hole=0.50,
+                title="Airborne vs Grounded",
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+            )
 
     with col2:
 
+        if not status_df.empty:
+
+            fig = px.bar(
+                status_df,
+                x="flight_status",
+                y="aircraft_count",
+                text="aircraft_count",
+                title="Aircraft by Operational Status",
+            )
+
+            fig.update_traces(
+                textposition="outside"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+            )
+
+    # --------------------------------------------------------
+    # TOP COUNTRIES
+    # --------------------------------------------------------
+
+    st.subheader(
+        "🌍 Top Countries by Observed Aircraft"
+    )
+
+    if not country_df.empty:
+
+        top_countries = (
+            country_df
+            .sort_values(
+                "total_aircraft",
+                ascending=False,
+            )
+            .head(10)
+            .sort_values(
+                "total_aircraft"
+            )
+        )
+
         fig = px.bar(
-            status_df,
-            x="flight_status",
-            y="aircraft_count",
-            text="aircraft_count",
-            title="Aircraft by Operational Status",
+            top_countries,
+            x="total_aircraft",
+            y="origin_country",
+            orientation="h",
+            text="total_aircraft",
+            title="Top 10 Countries",
         )
 
         fig.update_traces(
@@ -481,41 +617,32 @@ if page == "Executive Overview":
         )
 
     # --------------------------------------------------------
-    # TOP COUNTRIES
+    # QUICK INTERPRETATION
     # --------------------------------------------------------
 
     st.subheader(
-        "🌍 Top Countries by Observed Aircraft"
+        "💡 Quick Interpretation"
     )
 
-    top_countries = (
-        country_df
-        .sort_values(
-            "total_aircraft",
-            ascending=False,
-        )
-        .head(10)
-        .sort_values(
-            "total_aircraft"
-        )
+    st.write(
+        f"""
+        The current snapshot contains **{total_aircraft:,} observed
+        aircraft** across **{total_countries:,} countries**.
+
+        **{airborne_percentage:.1f}%** of observed aircraft are
+        airborne, while **{grounded_percentage:.1f}%** are grounded.
+
+        The average observed velocity is approximately
+        **{average_velocity:.1f} km/h**.
+        """
     )
 
-    fig = px.bar(
-        top_countries,
-        x="total_aircraft",
-        y="origin_country",
-        orientation="h",
-        text="total_aircraft",
-        title="Top 10 Countries",
-    )
-
-    fig.update_traces(
-        textposition="outside"
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
+    st.warning(
+        """
+        **Important:** These are observed aircraft states in a
+        snapshot. They should not be interpreted as the number
+        of completed flights.
+        """
     )
 
 
@@ -527,23 +654,35 @@ elif page == "Country Analysis":
 
     st.markdown(
         '<div class="section-title">'
-        '🌍 Country Analysis'
-        '</div>',
+        "🌍 Country Analysis"
+        "</div>",
         unsafe_allow_html=True,
     )
 
     st.write(
         """
-        This section analyzes the geographic distribution
-        and operational activity of observed aircraft.
+        Analyze geographic distribution, operational activity,
+        grounding and velocity across countries.
         """
     )
 
+    if country_df.empty:
+
+        st.warning(
+            "Country analytics dataset is empty."
+        )
+
+        st.stop()
+
+    # --------------------------------------------------------
+    # FILTER
+    # --------------------------------------------------------
+
     top_n = st.slider(
         "Number of countries to display",
-        5,
-        25,
-        10,
+        min_value=5,
+        max_value=min(25, len(country_df)),
+        value=min(10, len(country_df)),
     )
 
     top_df = (
@@ -559,19 +698,29 @@ elif page == "Country Analysis":
     # AIRCRAFT BY COUNTRY
     # --------------------------------------------------------
 
+    st.subheader(
+        "Aircraft Distribution"
+    )
+
     col1, col2 = st.columns(2)
 
     with col1:
 
+        plot_df = top_df.sort_values(
+            "total_aircraft"
+        )
+
         fig = px.bar(
-            top_df.sort_values(
-                "total_aircraft"
-            ),
+            plot_df,
             x="total_aircraft",
             y="origin_country",
             orientation="h",
             text="total_aircraft",
             title="Observed Aircraft by Country",
+        )
+
+        fig.update_traces(
+            textposition="outside"
         )
 
         st.plotly_chart(
@@ -581,15 +730,21 @@ elif page == "Country Analysis":
 
     with col2:
 
+        plot_df = top_df.sort_values(
+            "avg_velocity_kmh"
+        )
+
         fig = px.bar(
-            top_df.sort_values(
-                "avg_velocity_kmh"
-            ),
+            plot_df,
             x="avg_velocity_kmh",
             y="origin_country",
             orientation="h",
             text="avg_velocity_kmh",
             title="Average Velocity by Country",
+        )
+
+        fig.update_traces(
+            textposition="outside"
         )
 
         st.plotly_chart(
@@ -612,12 +767,13 @@ elif page == "Country Analysis":
             ascending=False,
         )
         .head(top_n)
+        .sort_values(
+            "airborne_percentage"
+        )
     )
 
     fig = px.bar(
-        utilization.sort_values(
-            "airborne_percentage"
-        ),
+        utilization,
         x="airborne_percentage",
         y="origin_country",
         orientation="h",
@@ -650,12 +806,13 @@ elif page == "Country Analysis":
             ascending=False,
         )
         .head(top_n)
+        .sort_values(
+            "grounded_percentage"
+        )
     )
 
     fig = px.bar(
-        grounding.sort_values(
-            "grounded_percentage"
-        ),
+        grounding,
         x="grounded_percentage",
         y="origin_country",
         orientation="h",
@@ -674,7 +831,7 @@ elif page == "Country Analysis":
     )
 
     # --------------------------------------------------------
-    # COUNTRY TABLE
+    # COUNTRY PERFORMANCE TABLE
     # --------------------------------------------------------
 
     st.subheader(
@@ -694,15 +851,26 @@ elif page == "Country Analysis":
         "velocity_rank",
     ]
 
-    columns = [
-        col
-        for col in columns
-        if col in country_df.columns
+    available_columns = [
+        column
+        for column in columns
+        if column in country_df.columns
     ]
 
+    table = (
+        country_df[available_columns]
+        .sort_values(
+            "traffic_rank"
+            if "traffic_rank" in available_columns
+            else "total_aircraft",
+            ascending=True
+            if "traffic_rank" in available_columns
+            else False,
+        )
+    )
+
     st.dataframe(
-        country_df[columns]
-        .sort_values("traffic_rank"),
+        table,
         use_container_width=True,
         hide_index=True,
     )
@@ -716,28 +884,123 @@ elif page == "Velocity Analysis":
 
     st.markdown(
         '<div class="section-title">'
-        '🚀 Velocity Analysis'
-        '</div>',
+        "🚀 Velocity Analysis"
+        "</div>",
         unsafe_allow_html=True,
     )
 
     st.write(
         """
-        Velocity analysis describes the movement profile
-        of aircraft observed in the current snapshot.
+        Analyze aircraft movement profiles, velocity categories
+        and high-speed observations.
         """
     )
 
-    col1, col2 = st.columns(2)
+    # --------------------------------------------------------
+    # VELOCITY CATEGORY
+    # --------------------------------------------------------
 
-    with col1:
+    if not velocity_df.empty:
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            fig = px.bar(
+                velocity_df,
+                x="velocity_category",
+                y="aircraft_count",
+                text="aircraft_count",
+                title="Aircraft by Velocity Category",
+            )
+
+            fig.update_traces(
+                textposition="outside"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+            )
+
+        with col2:
+
+            fig = px.bar(
+                velocity_df,
+                x="velocity_category",
+                y="avg_velocity_kmh",
+                text="avg_velocity_kmh",
+                title="Average Velocity by Category",
+            )
+
+            fig.update_traces(
+                textposition="outside"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+            )
+
+    # --------------------------------------------------------
+    # VELOCITY KPIs
+    # --------------------------------------------------------
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric(
+        "Average",
+        f"{average_velocity:.1f} km/h",
+    )
+
+    col2.metric(
+        "Median",
+        f"{median_velocity * 3.6:.1f} km/h",
+    )
+
+    col3.metric(
+        "Minimum",
+        f"{minimum_velocity * 3.6:.1f} km/h",
+    )
+
+    col4.metric(
+        "Maximum",
+        f"{maximum_velocity * 3.6:.1f} km/h",
+    )
+
+    # --------------------------------------------------------
+    # HIGH-SPEED AIRCRAFT
+    # --------------------------------------------------------
+
+    if not country_df.empty:
+
+        st.subheader(
+            "⚡ High-Speed Aircraft"
+        )
+
+        high_speed = (
+            country_df
+            .sort_values(
+                "high_speed_aircraft",
+                ascending=False,
+            )
+            .head(10)
+            .sort_values(
+                "high_speed_aircraft"
+            )
+        )
 
         fig = px.bar(
-            velocity_df,
-            x="velocity_category",
-            y="aircraft_count",
-            text="aircraft_count",
-            title="Aircraft by Velocity Category",
+            high_speed,
+            x="high_speed_aircraft",
+            y="origin_country",
+            orientation="h",
+            text="high_speed_aircraft",
+            title="High-Speed Aircraft by Country",
+        )
+
+        fig.update_traces(
+            textposition="outside"
         )
 
         st.plotly_chart(
@@ -745,87 +1008,39 @@ elif page == "Velocity Analysis":
             use_container_width=True,
         )
 
-    with col2:
+    # --------------------------------------------------------
+    # TRAFFIC VS VELOCITY
+    # --------------------------------------------------------
 
-        fig = px.bar(
-            velocity_df,
-            x="velocity_category",
+    if not country_df.empty:
+
+        st.subheader(
+            "🌍 Aircraft Volume vs Velocity"
+        )
+
+        fig = px.scatter(
+            country_df,
+            x="total_aircraft",
             y="avg_velocity_kmh",
-            text="avg_velocity_kmh",
-            title="Average Velocity by Category",
+            size="airborne_count",
+            hover_name="origin_country",
+            hover_data=[
+                "airborne_percentage",
+                "grounded_percentage",
+                "high_speed_aircraft",
+            ],
+            title="Observed Aircraft vs Average Velocity",
+            labels={
+                "total_aircraft": "Observed Aircraft",
+                "avg_velocity_kmh":
+                    "Average Velocity (km/h)",
+            },
         )
 
         st.plotly_chart(
             fig,
             use_container_width=True,
         )
-
-    # --------------------------------------------------------
-    # HIGH SPEED
-    # --------------------------------------------------------
-
-    st.subheader(
-        "⚡ High-Speed Aircraft"
-    )
-
-    high_speed = (
-        country_df
-        .sort_values(
-            "high_speed_aircraft",
-            ascending=False,
-        )
-        .head(10)
-        .sort_values(
-            "high_speed_aircraft"
-        )
-    )
-
-    fig = px.bar(
-        high_speed,
-        x="high_speed_aircraft",
-        y="origin_country",
-        orientation="h",
-        text="high_speed_aircraft",
-        title="High-Speed Aircraft by Country",
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-    )
-
-    # --------------------------------------------------------
-    # VELOCITY COUNTRY SCATTER
-    # --------------------------------------------------------
-
-    st.subheader(
-        "🌍 Traffic vs Velocity"
-    )
-
-    fig = px.scatter(
-        country_df,
-        x="total_aircraft",
-        y="avg_velocity_kmh",
-        size="airborne_count",
-        hover_name="origin_country",
-        hover_data=[
-            "airborne_percentage",
-            "grounded_percentage",
-            "high_speed_aircraft",
-        ],
-        title="Aircraft Volume vs Average Velocity",
-        labels={
-            "total_aircraft":
-                "Observed Aircraft",
-            "avg_velocity_kmh":
-                "Average Velocity (km/h)",
-        },
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-    )
 
 
 # ============================================================
@@ -836,10 +1051,25 @@ elif page == "Operational Insights":
 
     st.markdown(
         '<div class="section-title">'
-        '💡 Operational & Business Insights'
-        '</div>',
+        "💡 Operational & Business Insights"
+        "</div>",
         unsafe_allow_html=True,
     )
+
+    st.write(
+        """
+        This section converts Gold-layer metrics into
+        understandable operational findings.
+        """
+    )
+
+    if country_df.empty:
+
+        st.warning(
+            "Country analytics are not available."
+        )
+
+        st.stop()
 
     # --------------------------------------------------------
     # LEADERS
@@ -885,26 +1115,26 @@ elif page == "Operational Insights":
     # TRAFFIC CONCENTRATION
     # --------------------------------------------------------
 
-    total_observed = country_df[
-        "total_aircraft"
-    ].sum()
+    total_observed = (
+        country_df["total_aircraft"].sum()
+    )
 
     top5_observed = (
         country_df
         .nlargest(
-            5,
+            min(5, len(country_df)),
             "total_aircraft",
         )["total_aircraft"]
         .sum()
     )
 
-    concentration = safe_divide(
+    top5_share = safe_percentage(
         top5_observed,
         total_observed,
     )
 
     # --------------------------------------------------------
-    # INSIGHT CARDS
+    # LEADER CARDS
     # --------------------------------------------------------
 
     col1, col2 = st.columns(2)
@@ -913,32 +1143,33 @@ elif page == "Operational Insights":
 
         st.success(
             f"""
-            ### 🌍 Traffic Leader
+### 🌍 Traffic Leader
 
-            **{traffic_leader['origin_country']}**
+**{traffic_leader["origin_country"]}**
 
-            Observed aircraft:
-            **{int(traffic_leader['total_aircraft']):,}**
+Observed aircraft:
 
-            This country has the largest observed
-            aircraft population in the current snapshot.
-            """
+**{number(traffic_leader["total_aircraft"])}**
+
+Largest observed aircraft population in
+the current snapshot.
+"""
         )
 
     with col2:
 
         st.info(
             f"""
-            ### 🚀 Velocity Leader
+### 🚀 Velocity Leader
 
-            **{velocity_leader['origin_country']}**
+**{velocity_leader["origin_country"]}**
 
-            Average velocity:
-            **{velocity_leader['avg_velocity_kmh']:.1f} km/h**
+Average velocity:
 
-            This country has the highest average
-            observed velocity.
-            """
+**{velocity_leader["avg_velocity_kmh"]:.1f} km/h**
+
+Highest average observed velocity.
+"""
         )
 
     col1, col2 = st.columns(2)
@@ -947,30 +1178,32 @@ elif page == "Operational Insights":
 
         st.success(
             f"""
-            ### ✈️ Highest Airborne Rate
+### ✈️ Highest Airborne Rate
 
-            **{airborne_leader['origin_country']}**
+**{airborne_leader["origin_country"]}**
 
-            Airborne rate:
-            **{airborne_leader['airborne_percentage']:.1f}%**
-            """
+Airborne rate:
+
+**{airborne_leader["airborne_percentage"]:.1f}%**
+"""
         )
 
     with col2:
 
         st.warning(
             f"""
-            ### 🛬 Highest Grounding Rate
+### 🛬 Highest Grounding Rate
 
-            **{grounding_leader['origin_country']}**
+**{grounding_leader["origin_country"]}**
 
-            Grounding rate:
-            **{grounding_leader['grounded_percentage']:.1f}%**
-            """
+Grounding rate:
+
+**{grounding_leader["grounded_percentage"]:.1f}%**
+"""
         )
 
     # --------------------------------------------------------
-    # CONCENTRATION
+    # TRAFFIC CONCENTRATION
     # --------------------------------------------------------
 
     st.subheader(
@@ -979,30 +1212,41 @@ elif page == "Operational Insights":
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric(
-        "Top 5 Aircraft",
-        f"{int(top5_observed):,}",
-    )
+    with col1:
 
-    col2.metric(
-        "Top 5 Share",
-        f"{concentration:.1f}%",
-    )
+        st.metric(
+            "Top 5 Observed Aircraft",
+            number(top5_observed),
+        )
 
-    if concentration >= 60:
-        level = "High"
-    elif concentration >= 40:
-        level = "Moderate"
-    else:
-        level = "Low"
+    with col2:
 
-    col3.metric(
-        "Concentration Level",
-        level,
-    )
+        st.metric(
+            "Top 5 Share",
+            f"{top5_share:.1f}%",
+        )
+
+    with col3:
+
+        if top5_share >= 60:
+
+            concentration_level = "High"
+
+        elif top5_share >= 40:
+
+            concentration_level = "Moderate"
+
+        else:
+
+            concentration_level = "Low"
+
+        st.metric(
+            "Concentration Level",
+            concentration_level,
+        )
 
     # --------------------------------------------------------
-    # AUTOMATIC BUSINESS INSIGHTS
+    # AUTOMATIC FINDINGS
     # --------------------------------------------------------
 
     st.subheader(
@@ -1012,20 +1256,19 @@ elif page == "Operational Insights":
     findings = []
 
     findings.append(
-        f"The dataset currently contains "
-        f"**{total_aircraft:,} observed aircraft** "
-        f"across **{total_countries:,} countries**."
+        f"The snapshot contains **{total_aircraft:,} observed "
+        f"aircraft** across **{total_countries:,} countries**."
     )
 
     findings.append(
-        f"**{airborne_percentage:.1f}%** of observed "
-        f"aircraft are currently airborne, while "
-        f"**{grounded_percentage:.1f}%** are grounded."
+        f"**{airborne_percentage:.1f}%** of observed aircraft "
+        f"are airborne and **{grounded_percentage:.1f}%** "
+        f"are grounded."
     )
 
     findings.append(
         f"The top five countries represent approximately "
-        f"**{concentration:.1f}%** of all observed aircraft."
+        f"**{top5_share:.1f}%** of observed aircraft."
     )
 
     findings.append(
@@ -1044,24 +1287,24 @@ elif page == "Operational Insights":
     )
 
     for finding in findings:
+
         st.markdown(
             f"- {finding}"
         )
 
     # --------------------------------------------------------
-    # IMPORTANT INTERPRETATION
+    # INTERPRETATION WARNING
     # --------------------------------------------------------
 
     st.warning(
         """
-        **Interpretation note**
+        **Data interpretation**
 
-        This dashboard represents an aircraft-state snapshot.
-        "Observed aircraft" should not be interpreted as the
-        number of completed flights.
+        This project analyzes aircraft-state snapshots.
+        "Observed aircraft" does not mean completed flights.
 
-        Airborne and grounded percentages describe the state
-        of aircraft at the time represented by the snapshot.
+        Airborne and grounded percentages describe aircraft
+        states at the time represented by the snapshot.
         """
     )
 
@@ -1074,15 +1317,16 @@ elif page == "Data Quality":
 
     st.markdown(
         '<div class="section-title">'
-        '🧹 Data Quality'
-        '</div>',
+        "🧹 Data Quality"
+        "</div>",
         unsafe_allow_html=True,
     )
 
     st.write(
         """
-        The Silver layer cleans and validates the raw flight
-        data before it reaches the Gold layer.
+        The Silver layer cleans, validates and transforms
+        the Bronze data before producing business-ready
+        Gold datasets.
         """
     )
 
@@ -1090,16 +1334,22 @@ elif page == "Data Quality":
     # FILE COUNTS
     # --------------------------------------------------------
 
-    bronze_files = list(
-        BRONZE_DIR.glob("*")
+    bronze_files = (
+        list(BRONZE_DIR.glob("*"))
+        if BRONZE_DIR.exists()
+        else []
     )
 
-    silver_files = list(
-        SILVER_DIR.glob("*")
+    silver_files = (
+        list(SILVER_DIR.glob("*"))
+        if SILVER_DIR.exists()
+        else []
     )
 
-    gold_files = list(
-        GOLD_DIR.glob("*")
+    gold_files = (
+        list(GOLD_DIR.glob("*"))
+        if GOLD_DIR.exists()
+        else []
     )
 
     col1, col2, col3 = st.columns(3)
@@ -1122,31 +1372,115 @@ elif page == "Data Quality":
     st.divider()
 
     # --------------------------------------------------------
-    # DATA QUALITY CHECKS
+    # QUALITY PROCESS
     # --------------------------------------------------------
 
-    quality_checks = {
-        "Duplicate ICAO24": "Removed in Silver",
-        "Missing Country": "Filled as Unknown",
-        "Invalid Velocity": "Validated in Silver",
-        "on_ground": "Converted to boolean",
-        "Country Names": "Normalized",
-        "Derived Fields": "Created in Silver",
-    }
-
-    quality_df = pd.DataFrame(
+    quality_checks = pd.DataFrame(
         [
             {
-                "Check": check,
-                "Status": status,
-            }
-            for check, status
-            in quality_checks.items()
+                "Data Quality Check":
+                    "Duplicate ICAO24",
+                "Silver Layer Action":
+                    "Removed duplicate aircraft records",
+                "Status":
+                    "Completed",
+            },
+            {
+                "Data Quality Check":
+                    "Missing Country",
+                "Silver Layer Action":
+                    "Filled missing values with Unknown",
+                "Status":
+                    "Completed",
+            },
+            {
+                "Data Quality Check":
+                    "Velocity Validation",
+                "Silver Layer Action":
+                    "Converted to numeric and removed invalid values",
+                "Status":
+                    "Completed",
+            },
+            {
+                "Data Quality Check":
+                    "on_ground",
+                "Silver Layer Action":
+                    "Converted to boolean",
+                "Status":
+                    "Completed",
+            },
+            {
+                "Data Quality Check":
+                    "Country Normalization",
+                "Silver Layer Action":
+                    "Trimmed and normalized country names",
+                "Status":
+                    "Completed",
+            },
+            {
+                "Data Quality Check":
+                    "Derived Fields",
+                "Silver Layer Action":
+                    "Created flight status and velocity indicators",
+                "Status":
+                    "Completed",
+            },
         ]
     )
 
     st.dataframe(
-        quality_df,
+        quality_checks,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # --------------------------------------------------------
+    # DATASET SIZES
+    # --------------------------------------------------------
+
+    st.subheader(
+        "📦 Gold Dataset Sizes"
+    )
+
+    dataset_sizes = pd.DataFrame(
+        [
+            {
+                "Gold Dataset":
+                    "Country Analytics",
+                "Rows":
+                    len(country_df),
+                "Columns":
+                    len(country_df.columns),
+            },
+            {
+                "Gold Dataset":
+                    "Velocity Analytics",
+                "Rows":
+                    len(velocity_df),
+                "Columns":
+                    len(velocity_df.columns),
+            },
+            {
+                "Gold Dataset":
+                    "Flight Status Analytics",
+                "Rows":
+                    len(status_df),
+                "Columns":
+                    len(status_df.columns),
+            },
+            {
+                "Gold Dataset":
+                    "Overall Metrics",
+                "Rows":
+                    len(overall_df),
+                "Columns":
+                    len(overall_df.columns),
+            },
+        ]
+    )
+
+    st.dataframe(
+        dataset_sizes,
         use_container_width=True,
         hide_index=True,
     )
@@ -1160,15 +1494,15 @@ elif page == "Gold Data":
 
     st.markdown(
         '<div class="section-title">'
-        '📋 Gold Layer Data'
-        '</div>',
+        "📋 Gold Layer Data"
+        "</div>",
         unsafe_allow_html=True,
     )
 
     st.write(
         """
-        The Gold layer contains business-ready analytical
-        datasets generated by the Airflow pipeline.
+        These are the business-ready analytical datasets
+        generated by the Gold layer of the Airflow pipeline.
         """
     )
 
@@ -1183,6 +1517,10 @@ elif page == "Gold Data":
 
     with tab1:
 
+        st.caption(
+            "Country-level operational analytics"
+        )
+
         st.dataframe(
             country_df,
             use_container_width=True,
@@ -1190,6 +1528,10 @@ elif page == "Gold Data":
         )
 
     with tab2:
+
+        st.caption(
+            "Velocity-category analytics"
+        )
 
         st.dataframe(
             velocity_df,
@@ -1199,6 +1541,10 @@ elif page == "Gold Data":
 
     with tab3:
 
+        st.caption(
+            "Airborne vs grounded analytics"
+        )
+
         st.dataframe(
             status_df,
             use_container_width=True,
@@ -1206,6 +1552,10 @@ elif page == "Gold Data":
         )
 
     with tab4:
+
+        st.caption(
+            "Overall snapshot metrics"
+        )
 
         st.dataframe(
             overall_df,
@@ -1222,5 +1572,5 @@ st.divider()
 
 st.caption(
     "Flight Operations Intelligence | "
-    "Apache Airflow + Python + Pandas + Streamlit + Plotly"
+    "Apache Airflow • Python • Pandas • Plotly • Streamlit"
 )

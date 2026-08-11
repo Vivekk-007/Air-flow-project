@@ -1,0 +1,5 @@
+velocity_category,aircraft_count,avg_velocity,avg_velocity_kmh,airborne_count,grounded_count,percentage
+High,950,265.8,956.89,950,0,7.67
+Low,3269,88.83,319.79,3263,6,26.4
+Normal,5692,218.99,788.36,5691,1,45.97
+Very Low,2470,23.94,86.17,1414,1056,19.95
